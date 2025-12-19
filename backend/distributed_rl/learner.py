@@ -1,5 +1,6 @@
 from multiprocessing import Process, Queue
 from typing import List, Tuple
+from metrics_store import init_experiment_metrics, add_metric_to_list
 
 import numpy as np
 import torch
@@ -22,7 +23,7 @@ def compute_returns(rewards, dones, last_value, gamma=GAMMA):
     returns.reverse()
     return np.array(returns, dtype=np.float32)
 
-def learner_loop(experience_queue: Queue):
+def learner_loop(exp_id: str, experience_queue: Queue, metrics_list):
     model = None
     optimizer = None
 
@@ -73,12 +74,18 @@ def learner_loop(experience_queue: Queue):
 
         avg_return = returns.mean().item()
         episodes_seen += 1
+
+        # Log to metrics store
+        add_metric_to_list(metrics_list, episodes_seen, avg_return)
         print(f"[Learner] Loss={loss.item():.3f} AvgReturn={avg_return:.2f} EpisodesSeen~{episodes_seen}")
 
-def start_distributed(num_actors: int = 2) -> Tuple[Process, List[Process]]:
+def start_distributed(exp_id: str, num_actors: int = 2) -> Tuple[Process, List[Process]]:
     experience_queue: Queue = Queue(maxsize=10_000)
 
-    learner = Process(target=learner_loop, args=(experience_queue,))
+    # Initialize metrics for this experiment and get the shared list
+    metrics_list = init_experiment_metrics(exp_id)
+
+    learner = Process(target=learner_loop, args=(exp_id, experience_queue, metrics_list))
     learner.start()
 
     actors: List[Process] = []
@@ -88,5 +95,4 @@ def start_distributed(num_actors: int = 2) -> Tuple[Process, List[Process]]:
         p.start()
         actors.append(p)
 
-    # Don't join here; caller will manage lifecycle
     return learner, actors

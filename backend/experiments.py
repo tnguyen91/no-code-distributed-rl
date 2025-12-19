@@ -3,6 +3,7 @@ from typing import Dict, Optional, List
 from uuid import uuid4
 
 from distributed_rl.learner import start_distributed
+from metrics_store import delete_experiment_metrics
 
 class ExperimentManager:
     def __init__(self):
@@ -10,7 +11,7 @@ class ExperimentManager:
 
     def start_experiment(self, num_actors: int = 2) -> str:
         exp_id = str(uuid4())
-        learner, actors = start_distributed(num_actors=num_actors)
+        learner, actors = start_distributed(exp_id=exp_id, num_actors=num_actors)
         self.experiments[exp_id] = {
             "learner": learner,
             "actors": actors,
@@ -25,15 +26,14 @@ class ExperimentManager:
         learner: Process = exp["learner"]
         actors: List[Process] = exp["actors"]
 
-        # Terminate learner and actors
         for p in [learner, *actors]:
             if p.is_alive():
                 p.terminate()
-
         for p in [learner, *actors]:
             p.join(timeout=1.0)
 
         del self.experiments[exp_id]
+        delete_experiment_metrics(exp_id)
         return True
 
     def list_experiments(self):

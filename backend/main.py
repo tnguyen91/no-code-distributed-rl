@@ -3,6 +3,7 @@ from fastapi import BackgroundTasks
 from rl_baseline import train_cartpole
 from pydantic import BaseModel
 from experiments import manager
+from metrics_store import get_metrics
 
 app = FastAPI()
 
@@ -31,3 +32,8 @@ def list_experiments():
 def stop_experiment(exp_id: str):
     ok = manager.stop_experiment(exp_id)
     return {"ok": ok}
+
+@app.get("/experiments/{exp_id}/metrics")
+def get_experiment_metrics(exp_id: str):
+    metrics = get_metrics(exp_id)
+    return {"experiment_id": exp_id, "metrics": metrics}
