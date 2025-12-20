@@ -9,9 +9,9 @@ class ExperimentManager:
     def __init__(self):
         self.experiments: Dict[str, Dict[str, object]] = {}
 
-    def start_experiment(self, num_actors: int = 2) -> str:
+    def start_experiment(self, num_actors: int = 2, env_id: str = "CartPole-v1") -> str:
         exp_id = str(uuid4())
-        learner, actors = start_distributed(exp_id=exp_id, num_actors=num_actors)
+        learner, actors = start_distributed(exp_id=exp_id, num_actors=num_actors, env_id=env_id)
         self.experiments[exp_id] = {
             "learner": learner,
             "actors": actors,

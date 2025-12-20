@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi import BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 from rl_baseline import train_cartpole
 from pydantic import BaseModel
 from experiments import manager
@@ -7,8 +8,23 @@ from metrics_store import get_metrics
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 class StartRequest(BaseModel):
     num_actors: int = 2
+    env_id: str = "CartPole-v1"
+    total_timesteps: int = 100_000
 
 @app.get("/health")
 def health():
@@ -21,7 +37,7 @@ def train_baseline(background_tasks: BackgroundTasks):
 
 @app.post("/experiments")
 def start_experiment(req: StartRequest):
-    exp_id = manager.start_experiment(num_actors=req.num_actors)
+    exp_id = manager.start_experiment(num_actors=req.num_actors, env_id=req.env_id)
     return {"experiment_id": exp_id}
 
 @app.get("/experiments")

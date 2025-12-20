@@ -1,6 +1,5 @@
 import time
-from multiprocessing import Process, Queue
-from typing import Callable
+from multiprocessing import Queue
 
 import gymnasium as gym
 import torch

@@ -79,7 +79,7 @@ def learner_loop(exp_id: str, experience_queue: Queue, metrics_list):
         add_metric_to_list(metrics_list, episodes_seen, avg_return)
         print(f"[Learner] Loss={loss.item():.3f} AvgReturn={avg_return:.2f} EpisodesSeen~{episodes_seen}")
 
-def start_distributed(exp_id: str, num_actors: int = 2) -> Tuple[Process, List[Process]]:
+def start_distributed(exp_id: str, num_actors: int = 2, env_id: str = "CartPole-v1") -> Tuple[Process, List[Process]]:
     experience_queue: Queue = Queue(maxsize=10_000)
 
     # Initialize metrics for this experiment and get the shared list
@@ -91,7 +91,7 @@ def start_distributed(exp_id: str, num_actors: int = 2) -> Tuple[Process, List[P
     actors: List[Process] = []
     from .actors import actor_loop
     for i in range(num_actors):
-        p = Process(target=actor_loop, args=(i, experience_queue))
+        p = Process(target=actor_loop, args=(i, experience_queue, env_id))
         p.start()
         actors.append(p)
 
