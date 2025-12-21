@@ -1,4 +1,5 @@
 import torch.multiprocessing as mp
+from collections import deque
 from typing import List, Tuple
 
 import gymnasium as gym
@@ -23,14 +24,28 @@ def compute_returns(rewards, dones, gamma=GAMMA):
     returns.reverse()
     return np.array(returns, dtype=np.float32)
 
-def learner_loop(experience_queue: mp.Queue, metrics_list, shared_model: ActorCritic):
+
+def learner_loop(
+    experience_queue: mp.Queue,
+    episode_stats_queue: mp.Queue,
+    metrics_list,
+    shared_model: ActorCritic,
+):
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
+    recent_episodes = deque(maxlen=100)
 
     while True:
         batch = []
         while len(batch) < BATCH_SIZE:
             batch.append(experience_queue.get())
+
+        while not episode_stats_queue.empty():
+            try:
+                stats = episode_stats_queue.get_nowait()
+                recent_episodes.append(stats["episode_reward"])
+            except:
+                break
 
         obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32)
         actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64)
@@ -53,9 +68,9 @@ def learner_loop(experience_queue: mp.Queue, metrics_list, shared_model: ActorCr
         optimizer.step()
 
         update_count += 1
-        avg_return = returns.mean().item()
-        add_metric_to_list(metrics_list, update_count, avg_return)
-        print(f"[Learner] Update={update_count} Loss={loss.item():.3f} AvgReturn={avg_return:.2f}", flush=True)
+        avg_episode_reward = np.mean(recent_episodes) if recent_episodes else 0.0
+        add_metric_to_list(metrics_list, update_count, avg_episode_reward)
+        print(f"[Learner] Update={update_count} Loss={loss.item():.3f} AvgEpReward={avg_episode_reward:.1f} Episodes={len(recent_episodes)}", flush=True)
 
 def start_distributed(
     exp_id: str, num_actors: int = 2, env_id: str = "CartPole-v1"
@@ -69,14 +84,21 @@ def start_distributed(
     shared_model.share_memory()
 
     experience_queue: mp.Queue = mp.Queue(maxsize=10_000)
+    episode_stats_queue: mp.Queue = mp.Queue(maxsize=1_000)
     metrics_list = init_experiment_metrics(exp_id)
 
-    learner = mp.Process(target=learner_loop, args=(experience_queue, metrics_list, shared_model))
+    learner = mp.Process(
+        target=learner_loop,
+        args=(experience_queue, episode_stats_queue, metrics_list, shared_model),
+    )
     learner.start()
 
     actors: List[mp.Process] = []
     for i in range(num_actors):
-        p = mp.Process(target=actor_loop, args=(i, experience_queue, env_id, shared_model))
+        p = mp.Process(
+            target=actor_loop,
+            args=(i, experience_queue, env_id, shared_model, episode_stats_queue),
+        )
         p.start()
         actors.append(p)
 
