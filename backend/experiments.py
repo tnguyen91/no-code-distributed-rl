@@ -1,5 +1,5 @@
 from multiprocessing import Process
-from typing import Dict, Optional, List
+from typing import Dict, List
 from uuid import uuid4
 
 from distributed_rl.learner import start_distributed
@@ -7,15 +7,12 @@ from metrics_store import delete_experiment_metrics
 
 class ExperimentManager:
     def __init__(self):
-        self.experiments: Dict[str, Dict[str, object]] = {}
+        self.experiments: Dict[str, Dict] = {}
 
     def start_experiment(self, num_actors: int = 2, env_id: str = "CartPole-v1") -> str:
         exp_id = str(uuid4())
         learner, actors = start_distributed(exp_id=exp_id, num_actors=num_actors, env_id=env_id)
-        self.experiments[exp_id] = {
-            "learner": learner,
-            "actors": actors,
-        }
+        self.experiments[exp_id] = {"learner": learner, "actors": actors}
         return exp_id
 
     def stop_experiment(self, exp_id: str) -> bool:
@@ -30,7 +27,7 @@ class ExperimentManager:
             if p.is_alive():
                 p.terminate()
         for p in [learner, *actors]:
-            p.join(timeout=1.0)
+            p.join(timeout=2.0)
 
         del self.experiments[exp_id]
         delete_experiment_metrics(exp_id)

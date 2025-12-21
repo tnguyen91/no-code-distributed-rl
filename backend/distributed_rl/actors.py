@@ -1,29 +1,23 @@
 import time
-from multiprocessing import Queue
+import torch.multiprocessing as mp
 
 import gymnasium as gym
 import torch
 
 from .model import ActorCritic
 
-def actor_loop(actor_id: int, experience_queue: Queue, env_id: str = "CartPole-v1"):
+def actor_loop(actor_id: int, experience_queue: mp.Queue, env_id: str, shared_model: ActorCritic):
     env = gym.make(env_id)
     obs, _ = env.reset()
 
-    obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.n
-
-    policy = ActorCritic(obs_dim, act_dim)
-
     while True:
         done = False
-        episode_reward = 0.0
-
         while not done:
-            action, log_prob, value = policy.act(obs)
+            with torch.no_grad():
+                action, log_prob, value = shared_model.act(obs)
+
             next_obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
-            episode_reward += reward
 
             experience_queue.put({
                 "obs": obs,
@@ -31,12 +25,11 @@ def actor_loop(actor_id: int, experience_queue: Queue, env_id: str = "CartPole-v
                 "reward": reward,
                 "next_obs": next_obs,
                 "done": done,
-                "log_prob": float(log_prob.detach().numpy()),
-                "value": float(value.detach().numpy()),
+                "log_prob": float(log_prob.numpy()),
+                "value": float(value.numpy()),
                 "actor_id": actor_id,
             })
-
             obs = next_obs
 
         obs, _ = env.reset()
-        time.sleep(0.01)
+        time.sleep(0.001)
