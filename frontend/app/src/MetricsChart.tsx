@@ -20,7 +20,7 @@ const MetricsChart: React.FC<Props> = ({ metrics }) => {
         return <div className="empty-state">No metrics to display.</div>;
     }
 
-    const maxReturn = Math.max(...metrics.map((m) => m.avg_return));
+    const maxReward = Math.max(...metrics.map((m) => m.avg_return));
 
     return (
         <ResponsiveContainer width="100%" height={350}>
@@ -46,7 +46,7 @@ const MetricsChart: React.FC<Props> = ({ metrics }) => {
                     axisLine={{ stroke: "#2f3336" }}
                     tickLine={{ stroke: "#2f3336" }}
                     label={{
-                        value: "Average Return",
+                        value: "Episode Reward",
                         angle: -90,
                         position: "insideLeft",
                         fill: "#71767b",
@@ -62,11 +62,11 @@ const MetricsChart: React.FC<Props> = ({ metrics }) => {
                         color: "#e7e9ea",
                     }}
                     labelStyle={{ color: "#71767b" }}
-                    formatter={(value) => [typeof value === "number" ? value.toFixed(2) : value, "Avg Return"]}
+                    formatter={(value) => [typeof value === "number" ? value.toFixed(1) : value, "Reward"]}
                     labelFormatter={(label) => `Update ${label}`}
                 />
                 <ReferenceLine
-                    y={maxReturn}
+                    y={maxReward}
                     stroke="#00ba7c"
                     strokeDasharray="5 5"
                     strokeOpacity={0.5}
