@@ -9,10 +9,17 @@ class ExperimentManager:
     def __init__(self):
         self.experiments: Dict[str, Dict] = {}
 
-    def start_experiment(self, num_actors: int = 2, env_id: str = "CartPole-v1") -> str:
+    def start_experiment(
+        self,
+        num_actors: int = 2,
+        env_id: str = "CartPole-v1",
+        algorithm: str = "ppo",
+    ) -> str:
         exp_id = str(uuid4())
-        learner, actors = start_distributed(exp_id=exp_id, num_actors=num_actors, env_id=env_id)
-        self.experiments[exp_id] = {"learner": learner, "actors": actors}
+        learner, actors = start_distributed(
+            exp_id=exp_id, num_actors=num_actors, env_id=env_id, algorithm=algorithm
+        )
+        self.experiments[exp_id] = {"learner": learner, "actors": actors, "algorithm": algorithm}
         return exp_id
 
     def stop_experiment(self, exp_id: str) -> bool:

@@ -17,7 +17,7 @@ export interface ListExperimentsResponse {
 
 export interface MetricPoint {
     update: number;
-    avg_return: number;
+    avg_reward: number;
 }
 
 export interface MetricsResponse {
@@ -25,11 +25,15 @@ export interface MetricsResponse {
     metrics: MetricPoint[];
 }
 
-export async function startExperiment(numActors: number, envId: string): Promise<string> {
+export async function startExperiment(
+    numActors: number,
+    envId: string,
+    algorithm: string = "ppo"
+): Promise<string> {
     const res = await fetch(`${BASE_URL}/experiments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num_actors: numActors, env_id: envId }),
+        body: JSON.stringify({ num_actors: numActors, env_id: envId, algorithm }),
     });
     if (!res.ok) {
         throw new Error("Failed to start experiment");

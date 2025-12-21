@@ -20,7 +20,7 @@ const MetricsChart: React.FC<Props> = ({ metrics }) => {
         return <div className="empty-state">No metrics to display.</div>;
     }
 
-    const maxReward = Math.max(...metrics.map((m) => m.avg_return));
+    const maxReward = Math.max(...metrics.map((m) => m.avg_reward));
 
     return (
         <ResponsiveContainer width="100%" height={350}>
@@ -73,7 +73,7 @@ const MetricsChart: React.FC<Props> = ({ metrics }) => {
                 />
                 <Line
                     type="monotone"
-                    dataKey="avg_return"
+                    dataKey="avg_reward"
                     stroke="#1d9bf0"
                     strokeWidth={2}
                     dot={false}

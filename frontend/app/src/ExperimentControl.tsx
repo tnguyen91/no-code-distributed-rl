@@ -19,6 +19,7 @@ const ExperimentControl: React.FC = () => {
     const [metrics, setMetrics] = useState<MetricPoint[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [envId, setEnvId] = useState<string>("CartPole-v1");
+    const [algorithm, setAlgorithm] = useState<string>("ppo");
     const [isStarting, setIsStarting] = useState(false);
     const [isStopping, setIsStopping] = useState(false);
 
@@ -59,7 +60,7 @@ const ExperimentControl: React.FC = () => {
         setError(null);
         setIsStarting(true);
         try {
-            const expId = await startExperiment(numActors, envId);
+            const expId = await startExperiment(numActors, envId, algorithm);
             setSelectedExpId(expId);
             await refreshExperiments();
         } catch (err: any) {
@@ -91,7 +92,7 @@ const ExperimentControl: React.FC = () => {
 
     const selectedExp = experiments.find((e) => e.id === selectedExpId);
     const lastMetric = metrics.length > 0 ? metrics[metrics.length - 1] : null;
-    const maxReturn = metrics.length > 0 ? Math.max(...metrics.map((m) => m.avg_return)) : 0;
+    const maxReward = metrics.length > 0 ? Math.max(...metrics.map((m) => m.avg_reward)) : 0;
 
     return (
         <div className="dashboard">
@@ -117,6 +118,16 @@ const ExperimentControl: React.FC = () => {
                     {/* New Experiment Card */}
                     <div className="card">
                         <h2>New Experiment</h2>
+                        <div className="form-group">
+                            <label>Algorithm</label>
+                            <select
+                                value={algorithm}
+                                onChange={(e) => setAlgorithm(e.target.value)}
+                            >
+                                <option value="ppo">PPO</option>
+                                <option value="a2c">A2C</option>
+                            </select>
+                        </div>
                         <div className="form-group">
                             <label>Environment</label>
                             <select
@@ -236,12 +247,12 @@ const ExperimentControl: React.FC = () => {
                                                 <div className="stat-label">Updates</div>
                                             </div>
                                             <div className="stat-card">
-                                                <div className="stat-value">{lastMetric?.avg_return.toFixed(1) ?? "—"}</div>
-                                                <div className="stat-label">Current Return</div>
+                                                <div className="stat-value">{lastMetric?.avg_reward.toFixed(1) ?? "—"}</div>
+                                                <div className="stat-label">Current Reward</div>
                                             </div>
                                             <div className="stat-card">
-                                                <div className="stat-value">{maxReturn.toFixed(1)}</div>
-                                                <div className="stat-label">Best Return</div>
+                                                <div className="stat-value">{maxReward.toFixed(1)}</div>
+                                                <div className="stat-label">Best Reward</div>
                                             </div>
                                         </div>
 

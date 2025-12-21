@@ -24,7 +24,7 @@ app.add_middleware(
 class StartRequest(BaseModel):
     num_actors: int = 2
     env_id: str = "CartPole-v1"
-    total_timesteps: int = 100_000
+    algorithm: str = "ppo"
 
 @app.get("/health")
 def health():
@@ -37,7 +37,9 @@ def train_baseline(background_tasks: BackgroundTasks):
 
 @app.post("/experiments")
 def start_experiment(req: StartRequest):
-    exp_id = manager.start_experiment(num_actors=req.num_actors, env_id=req.env_id)
+    exp_id = manager.start_experiment(
+        num_actors=req.num_actors, env_id=req.env_id, algorithm=req.algorithm
+    )
     return {"experiment_id": exp_id}
 
 @app.get("/experiments")

@@ -23,16 +23,16 @@ def get_metrics_list(exp_id: str):
         return None
     return experiments_metrics[exp_id]
 
-def add_metric(exp_id: str, update_index: int, avg_return: float):
+def add_metric(exp_id: str, update_index: int, avg_reward: float):
     if experiments_metrics is None or exp_id not in experiments_metrics:
         return
     experiments_metrics[exp_id].append(
-        {"update": update_index, "avg_return": avg_return}
+        {"update": update_index, "avg_reward": avg_reward}
     )
 
-def add_metric_to_list(metrics_list, update_index: int, avg_return: float):
+def add_metric_to_list(metrics_list, update_index: int, avg_reward: float):
     """Add metric directly to a shared list (for use in child processes)."""
-    metrics_list.append({"update": update_index, "avg_return": avg_return})
+    metrics_list.append({"update": update_index, "avg_reward": avg_reward})
 
 def get_metrics(exp_id: str):
     if experiments_metrics is None or exp_id not in experiments_metrics:
