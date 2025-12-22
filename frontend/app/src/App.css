@@ -293,3 +293,26 @@ body {
   flex-direction: column;
   gap: 1.5rem;
 }
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 1.25rem;
+  font-weight: 400;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #71767b;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+
+.btn-icon:hover {
+  color: #f4212e;
+  background-color: rgba(244, 33, 46, 0.1);
+  border-color: rgba(244, 33, 46, 0.2);
+}

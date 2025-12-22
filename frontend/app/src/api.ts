@@ -70,3 +70,29 @@ export async function fetchMetrics(expId: string): Promise<MetricPoint[]> {
     const data: MetricsResponse = await res.json();
     return data.metrics;
 }
+
+export interface SavedModel {
+    id: string;
+    algorithm: string;
+    env_id: string;
+}
+
+export async function listSavedModels(): Promise<SavedModel[]> {
+    const res = await fetch(`${BASE_URL}/models`);
+    if (!res.ok) {
+        throw new Error("Failed to list models");
+    }
+    const data = await res.json();
+    return data.models;
+}
+
+export async function deleteSavedModel(modelId: string): Promise<boolean> {
+    const res = await fetch(`${BASE_URL}/models/${modelId}`, {
+        method: "DELETE",
+    });
+    if (!res.ok) {
+        return false;
+    }
+    const data = await res.json();
+    return data.ok;
+}

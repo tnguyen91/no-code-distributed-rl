@@ -46,12 +46,24 @@ def start_experiment(req: StartRequest):
 def list_experiments():
     return {"experiments": manager.list_experiments()}
 
+class StopRequest(BaseModel):
+    save_model: bool = True
+
 @app.post("/experiments/{exp_id}/stop")
-def stop_experiment(exp_id: str):
-    ok = manager.stop_experiment(exp_id)
-    return {"ok": ok}
+def stop_experiment(exp_id: str, req: StopRequest = StopRequest()):
+    saved_path = manager.stop_experiment(exp_id, save_model=req.save_model)
+    return {"ok": saved_path is not None or not req.save_model, "saved_path": saved_path}
 
 @app.get("/experiments/{exp_id}/metrics")
 def get_experiment_metrics(exp_id: str):
     metrics = get_metrics(exp_id)
     return {"experiment_id": exp_id, "metrics": metrics}
+
+@app.get("/models")
+def list_saved_models():
+    return {"models": manager.list_saved_models()}
+
+@app.delete("/models/{model_id}")
+def delete_saved_model(model_id: str):
+    ok = manager.delete_saved_model(model_id)
+    return {"ok": ok}

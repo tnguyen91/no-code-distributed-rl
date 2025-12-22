@@ -11,7 +11,7 @@ from metrics_store import init_experiment_metrics, add_metric_to_list
 from .model import ActorCritic
 from .actors import actor_loop
 
-BATCH_SIZE = 64
+BATCH_SIZE_PER_ACTOR = 32
 GAMMA = 0.99
 LR = 3e-4
 MAX_GRAD_NORM = 0.5
@@ -19,21 +19,24 @@ PPO_EPOCHS = 4
 PPO_CLIP = 0.2
 ENTROPY_COEF = 0.01
 VALUE_COEF = 0.5
-
+RHO_BAR = 1.0
+C_BAR = 1.0
 
 def a2c_learner_loop(
     experience_queue: mp.Queue,
     episode_stats_queue: mp.Queue,
     metrics_list,
     shared_model: ActorCritic,
+    num_actors: int = 2,
 ):
+    batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
     recent_episodes = deque(maxlen=100)
 
     while True:
         batch = []
-        while len(batch) < BATCH_SIZE:
+        while len(batch) < batch_size:
             batch.append(experience_queue.get())
 
         while not episode_stats_queue.empty():
@@ -80,20 +83,21 @@ def a2c_learner_loop(
         add_metric_to_list(metrics_list, update_count, avg_episode_reward)
         print(f"[A2C] Update={update_count} Loss={loss.item():.3f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
 
-
 def ppo_learner_loop(
     experience_queue: mp.Queue,
     episode_stats_queue: mp.Queue,
     metrics_list,
     shared_model: ActorCritic,
+    num_actors: int = 2,
 ):
+    batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
     recent_episodes = deque(maxlen=100)
 
     while True:
         batch = []
-        while len(batch) < BATCH_SIZE:
+        while len(batch) < batch_size:
             batch.append(experience_queue.get())
 
         while not episode_stats_queue.empty():
@@ -148,12 +152,90 @@ def ppo_learner_loop(
         add_metric_to_list(metrics_list, update_count, avg_episode_reward)
         print(f"[PPO] Update={update_count} Loss={loss.item():.3f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
 
+def vtrace_learner_loop(
+    experience_queue: mp.Queue,
+    episode_stats_queue: mp.Queue,
+    metrics_list,
+    shared_model: ActorCritic,
+    num_actors: int = 2,
+):
+    batch_size = BATCH_SIZE_PER_ACTOR * num_actors
+    optimizer = optim.Adam(shared_model.parameters(), lr=LR)
+    update_count = 0
+    recent_episodes = deque(maxlen=100)
+
+    while True:
+        batch = []
+        while len(batch) < batch_size:
+            batch.append(experience_queue.get())
+
+        while not episode_stats_queue.empty():
+            try:
+                stats = episode_stats_queue.get_nowait()
+                recent_episodes.append(stats["episode_reward"])
+            except:
+                break
+
+        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32)
+        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64)
+        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32)
+        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32)
+        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32)
+        behavior_log_probs = torch.as_tensor([e["log_prob"] for e in batch], dtype=torch.float32)
+        behavior_values = torch.as_tensor([e["value"] for e in batch], dtype=torch.float32)
+        masks = 1.0 - dones
+
+        # Get current policy's log probs and values
+        logits, values = shared_model(obs)
+        values = values.squeeze(-1)
+        dist = torch.distributions.Categorical(logits=logits)
+        target_log_probs = dist.log_prob(actions)
+
+        with torch.no_grad():
+            _, next_values = shared_model(next_obs)
+        next_values = next_values.squeeze(-1)
+
+        # Compute importance sampling ratios
+        log_rhos = target_log_probs.detach() - behavior_log_probs
+        rhos = torch.exp(log_rhos)
+
+        # Clip importance sampling ratios (V-trace truncation)
+        clipped_rhos = torch.clamp(rhos, max=RHO_BAR)
+
+        # V-trace targets: v_s = V_behavior(s) + clipped_ρ * δV
+        # where δV = r + γV(s') - V_behavior(s)
+        td_errors = rewards + GAMMA * next_values * masks - behavior_values
+        vtrace_targets = behavior_values + clipped_rhos * td_errors
+
+        # Advantages using V-trace targets
+        advantages = vtrace_targets - values.detach()
+
+        if advantages.std() > 1e-8:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # Policy gradient with importance sampling
+        policy_loss = -(target_log_probs * clipped_rhos.detach() * advantages).mean()
+        value_loss = (vtrace_targets.detach() - values).pow(2).mean()
+        entropy = dist.entropy().mean()
+        loss = policy_loss + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
+
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(shared_model.parameters(), MAX_GRAD_NORM)
+        optimizer.step()
+
+        update_count += 1
+        avg_rho = rhos.mean().item()
+        avg_episode_reward = np.mean(recent_episodes) if recent_episodes else 0.0
+        add_metric_to_list(metrics_list, update_count, avg_episode_reward)
+        print(f"[V-trace] Update={update_count} Loss={loss.item():.3f} AvgRho={avg_rho:.2f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
+
 def start_distributed(
     exp_id: str,
     num_actors: int = 2,
     env_id: str = "CartPole-v1",
     algorithm: str = "ppo",
-) -> Tuple[mp.Process, List[mp.Process]]:
+) -> Tuple[mp.Process, List[mp.Process], ActorCritic]:
     env = gym.make(env_id)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
@@ -166,10 +248,15 @@ def start_distributed(
     episode_stats_queue: mp.Queue = mp.Queue(maxsize=1_000)
     metrics_list = init_experiment_metrics(exp_id)
 
-    learner_fn = ppo_learner_loop if algorithm == "ppo" else a2c_learner_loop
+    if algorithm == "ppo":
+        learner_fn = ppo_learner_loop
+    elif algorithm == "vtrace":
+        learner_fn = vtrace_learner_loop
+    else:
+        learner_fn = a2c_learner_loop
     learner = mp.Process(
         target=learner_fn,
-        args=(experience_queue, episode_stats_queue, metrics_list, shared_model),
+        args=(experience_queue, episode_stats_queue, metrics_list, shared_model, num_actors),
     )
     learner.start()
 
@@ -182,4 +269,4 @@ def start_distributed(
         p.start()
         actors.append(p)
 
-    return learner, actors
+    return learner, actors, shared_model

@@ -4,8 +4,11 @@ import {
     stopExperiment,
     listExperiments,
     fetchMetrics,
+    listSavedModels,
+    deleteSavedModel,
     ExperimentSummary,
     MetricPoint,
+    SavedModel,
 } from "./api";
 import MetricsChart from "./MetricsChart";
 import "./App.css";
@@ -22,6 +25,7 @@ const ExperimentControl: React.FC = () => {
     const [algorithm, setAlgorithm] = useState<string>("ppo");
     const [isStarting, setIsStarting] = useState(false);
     const [isStopping, setIsStopping] = useState(false);
+    const [savedModels, setSavedModels] = useState<SavedModel[]>([]);
 
     const refreshExperiments = useCallback(async () => {
         try {
@@ -32,11 +36,19 @@ const ExperimentControl: React.FC = () => {
         }
     }, []);
 
+    const refreshSavedModels = useCallback(async () => {
+        try {
+            const models = await listSavedModels();
+            setSavedModels(models);
+        } catch (err: any) {}
+    }, []);
+
     useEffect(() => {
         refreshExperiments();
+        refreshSavedModels();
         const interval = setInterval(refreshExperiments, POLL_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, [refreshExperiments]);
+    }, [refreshExperiments, refreshSavedModels]);
 
     useEffect(() => {
         if (!selectedExpId) {
@@ -83,10 +95,20 @@ const ExperimentControl: React.FC = () => {
             setSelectedExpId(null);
             setMetrics([]);
             await refreshExperiments();
+            await refreshSavedModels();
         } catch (err: any) {
             setError(err.message ?? "Failed to stop experiment");
         } finally {
             setIsStopping(false);
+        }
+    }
+
+    async function handleDeleteModel(modelId: string) {
+        try {
+            await deleteSavedModel(modelId);
+            await refreshSavedModels();
+        } catch (err: any) {
+            setError(err.message ?? "Failed to delete model");
         }
     }
 
@@ -125,6 +147,7 @@ const ExperimentControl: React.FC = () => {
                                 onChange={(e) => setAlgorithm(e.target.value)}
                             >
                                 <option value="ppo">PPO</option>
+                                <option value="vtrace">V-trace (IMPALA)</option>
                                 <option value="a2c">A2C</option>
                             </select>
                         </div>
@@ -189,6 +212,42 @@ const ExperimentControl: React.FC = () => {
                                                 {exp.num_actors} actor{exp.num_actors !== 1 ? "s" : ""}
                                             </span>
                                         </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+
+                    {/* Saved Models Card */}
+                    <div className="card">
+                        <h2>Saved Models</h2>
+                        {savedModels.length === 0 ? (
+                            <div className="empty-state">
+                                No saved models yet.<br />
+                                Stop an experiment to save its model.
+                            </div>
+                        ) : (
+                            <ul className="experiment-list">
+                                {savedModels.map((model) => (
+                                    <li key={model.id} className="experiment-item">
+                                        <div className="experiment-item-info">
+                                            <span className="experiment-item-id">
+                                                {model.id.slice(0, 8)}
+                                            </span>
+                                            <span className="experiment-item-meta">
+                                                {model.algorithm.toUpperCase()} / {model.env_id}
+                                            </span>
+                                        </div>
+                                        <button
+                                            className="btn-icon"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeleteModel(model.id);
+                                            }}
+                                            title="Delete model"
+                                        >
+                                            &times;
+                                        </button>
                                     </li>
                                 ))}
                             </ul>
