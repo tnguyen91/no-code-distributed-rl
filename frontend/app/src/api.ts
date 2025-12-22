@@ -96,3 +96,41 @@ export async function deleteSavedModel(modelId: string): Promise<boolean> {
     const data = await res.json();
     return data.ok;
 }
+
+export interface EvaluationResult {
+    ok: boolean;
+    avg_reward: number;
+    min_reward: number;
+    max_reward: number;
+    episode_rewards: number[];
+    episode_lengths: number[];
+    video_urls: string[];
+    env_id: string;
+    algorithm: string;
+    error?: string;
+}
+
+export async function evaluateModel(
+    modelId: string,
+    numEpisodes: number = 10,
+    recordVideo: boolean = true,
+    numEpisodesToRecord: number = 1
+): Promise<EvaluationResult> {
+    const res = await fetch(`${BASE_URL}/models/${modelId}/evaluate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            num_episodes: numEpisodes,
+            record_video: recordVideo,
+            num_episodes_to_record: numEpisodesToRecord,
+        }),
+    });
+    if (!res.ok) {
+        throw new Error("Failed to evaluate model");
+    }
+    return await res.json();
+}
+
+export function getVideoUrl(relativePath: string): string {
+    return `${BASE_URL}${relativePath}`;
+}

@@ -1,10 +1,13 @@
+import os
 from fastapi import FastAPI
 from fastapi import BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from rl_baseline import train_cartpole
 from pydantic import BaseModel
-from experiments import manager
+from experiments import manager, MODELS_DIR
 from metrics_store import get_metrics
+from distributed_rl.evaluate import evaluate_model
 
 app = FastAPI()
 
@@ -67,3 +70,46 @@ def list_saved_models():
 def delete_saved_model(model_id: str):
     ok = manager.delete_saved_model(model_id)
     return {"ok": ok}
+
+class EvaluateRequest(BaseModel):
+    num_episodes: int = 10
+    record_video: bool = True
+    num_episodes_to_record: int = 1
+
+VIDEOS_DIR = os.path.join(os.path.dirname(__file__), "eval_videos")
+os.makedirs(VIDEOS_DIR, exist_ok=True)
+
+app.mount("/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
+
+@app.post("/models/{model_id}/evaluate")
+def evaluate_saved_model(model_id: str, req: EvaluateRequest = EvaluateRequest()):
+    model_path = os.path.join(MODELS_DIR, f"{model_id}.pt")
+    if not os.path.exists(model_path):
+        return {"ok": False, "error": "Model not found"}
+
+    video_dir = os.path.join(VIDEOS_DIR, model_id) if req.record_video else None
+
+    result = evaluate_model(
+        model_path=model_path,
+        num_episodes=req.num_episodes,
+        record_video=req.record_video,
+        video_dir=video_dir,
+        num_episodes_to_record=req.num_episodes_to_record,
+    )
+
+    video_urls = []
+    for video_path in result.get("video_paths", []):
+        rel_path = os.path.relpath(video_path, VIDEOS_DIR)
+        video_urls.append(f"/videos/{rel_path.replace(os.sep, '/')}")
+
+    return {
+        "ok": True,
+        "avg_reward": result["avg_reward"],
+        "min_reward": result["min_reward"],
+        "max_reward": result["max_reward"],
+        "episode_rewards": result["episode_rewards"],
+        "episode_lengths": result["episode_lengths"],
+        "video_urls": video_urls,
+        "env_id": result["env_id"],
+        "algorithm": result["algorithm"],
+    }

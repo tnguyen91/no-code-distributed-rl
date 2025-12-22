@@ -6,9 +6,12 @@ import {
     fetchMetrics,
     listSavedModels,
     deleteSavedModel,
+    evaluateModel,
+    getVideoUrl,
     ExperimentSummary,
     MetricPoint,
     SavedModel,
+    EvaluationResult,
 } from "./api";
 import MetricsChart from "./MetricsChart";
 import "./App.css";
@@ -26,6 +29,10 @@ const ExperimentControl: React.FC = () => {
     const [isStarting, setIsStarting] = useState(false);
     const [isStopping, setIsStopping] = useState(false);
     const [savedModels, setSavedModels] = useState<SavedModel[]>([]);
+    const [evaluatingModelId, setEvaluatingModelId] = useState<string | null>(null);
+    const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
+    const [evalEpisodes, setEvalEpisodes] = useState<number>(10);
+    const [recordEpisodes, setRecordEpisodes] = useState<number>(1);
 
     const refreshExperiments = useCallback(async () => {
         try {
@@ -109,6 +116,24 @@ const ExperimentControl: React.FC = () => {
             await refreshSavedModels();
         } catch (err: any) {
             setError(err.message ?? "Failed to delete model");
+        }
+    }
+
+    async function handleEvaluateModel(modelId: string) {
+        setError(null);
+        setEvaluatingModelId(modelId);
+        setEvalResult(null);
+        try {
+            const result = await evaluateModel(modelId, evalEpisodes, true, recordEpisodes);
+            if (!result.ok) {
+                setError(result.error ?? "Failed to evaluate model");
+                return;
+            }
+            setEvalResult(result);
+        } catch (err: any) {
+            setError(err.message ?? "Failed to evaluate model");
+        } finally {
+            setEvaluatingModelId(null);
         }
     }
 
@@ -221,6 +246,30 @@ const ExperimentControl: React.FC = () => {
                     {/* Saved Models Card */}
                     <div className="card">
                         <h2>Saved Models</h2>
+                        {savedModels.length > 0 && (
+                            <>
+                                <div className="form-group" style={{ marginBottom: "0.75rem" }}>
+                                    <label>Eval Episodes</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={100}
+                                        value={evalEpisodes}
+                                        onChange={(e) => setEvalEpisodes(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                                    />
+                                </div>
+                                <div className="form-group" style={{ marginBottom: "0.75rem" }}>
+                                    <label>Record Episodes</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={evalEpisodes}
+                                        value={recordEpisodes}
+                                        onChange={(e) => setRecordEpisodes(Math.max(0, Math.min(evalEpisodes, parseInt(e.target.value || "0", 10))))}
+                                    />
+                                </div>
+                            </>
+                        )}
                         {savedModels.length === 0 ? (
                             <div className="empty-state">
                                 No saved models yet.<br />
@@ -238,16 +287,33 @@ const ExperimentControl: React.FC = () => {
                                                 {model.algorithm.toUpperCase()} / {model.env_id}
                                             </span>
                                         </div>
-                                        <button
-                                            className="btn-icon"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteModel(model.id);
-                                            }}
-                                            title="Delete model"
-                                        >
-                                            &times;
-                                        </button>
+                                        <div style={{ display: "flex", gap: "0.25rem" }}>
+                                            <button
+                                                className="btn-icon btn-icon-eval"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleEvaluateModel(model.id);
+                                                }}
+                                                disabled={evaluatingModelId === model.id}
+                                                title="Evaluate model"
+                                            >
+                                                {evaluatingModelId === model.id ? (
+                                                    <span className="loading-spinner" style={{ width: 12, height: 12 }} />
+                                                ) : (
+                                                    "\u25B6"
+                                                )}
+                                            </button>
+                                            <button
+                                                className="btn-icon"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteModel(model.id);
+                                                }}
+                                                title="Delete model"
+                                            >
+                                                &times;
+                                            </button>
+                                        </div>
                                     </li>
                                 ))}
                             </ul>
@@ -323,6 +389,66 @@ const ExperimentControl: React.FC = () => {
                             </>
                         )}
                     </div>
+
+                    {/* Evaluation Results */}
+                    {evalResult && (
+                        <div className="card" style={{ marginTop: "1.5rem" }}>
+                            <div className="metrics-header">
+                                <div>
+                                    <h2>Evaluation Results</h2>
+                                    <p style={{ margin: 0, color: "#71767b", fontSize: "0.85rem" }}>
+                                        {evalResult.algorithm.toUpperCase()} / {evalResult.env_id} - {evalResult.episode_rewards.length} episodes
+                                    </p>
+                                </div>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={() => setEvalResult(null)}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+
+                            <div className="metrics-stats">
+                                <div className="stat-card">
+                                    <div className="stat-value">{evalResult.avg_reward.toFixed(1)}</div>
+                                    <div className="stat-label">Avg Reward</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value">{evalResult.min_reward.toFixed(1)}</div>
+                                    <div className="stat-label">Min Reward</div>
+                                </div>
+                                <div className="stat-card">
+                                    <div className="stat-value">{evalResult.max_reward.toFixed(1)}</div>
+                                    <div className="stat-label">Max Reward</div>
+                                </div>
+                            </div>
+
+                            {evalResult.video_urls.length > 0 && (
+                                <div className="chart-container" style={{ marginTop: "1rem" }}>
+                                    <h3 style={{ margin: "0 0 0.75rem 0", fontSize: "0.95rem", color: "#71767b" }}>
+                                        Agent Playback ({evalResult.video_urls.length} episode{evalResult.video_urls.length > 1 ? "s" : ""})
+                                    </h3>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
+                                        {evalResult.video_urls.map((url, idx) => (
+                                            <div key={idx}>
+                                                <p style={{ margin: "0 0 0.5rem 0", fontSize: "0.8rem", color: "#71767b" }}>
+                                                    Episode {idx + 1} - Reward: {evalResult.episode_rewards[idx]?.toFixed(0)}
+                                                </p>
+                                                <video
+                                                    src={getVideoUrl(url)}
+                                                    controls
+                                                    autoPlay={idx === 0}
+                                                    loop
+                                                    muted={idx > 0}
+                                                    style={{ width: "100%", maxWidth: "320px", borderRadius: "8px" }}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </main>
             </div>
         </div>

@@ -316,3 +316,14 @@ body {
   background-color: rgba(244, 33, 46, 0.1);
   border-color: rgba(244, 33, 46, 0.2);
 }
+
+.btn-icon-eval:hover {
+  color: #00ba7c;
+  background-color: rgba(0, 186, 124, 0.1);
+  border-color: rgba(0, 186, 124, 0.2);
+}
+
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
