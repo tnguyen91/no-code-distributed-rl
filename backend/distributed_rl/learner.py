@@ -1,3 +1,4 @@
+import queue
 import torch.multiprocessing as mp
 from collections import deque
 from typing import List, Tuple
@@ -10,6 +11,9 @@ import torch.optim as optim
 from metrics_store import init_experiment_metrics, add_metric_to_list
 from .model import ActorCritic
 from .actors import actor_loop
+
+def get_device():
+    return torch.device("cpu")
 
 BATCH_SIZE_PER_ACTOR = 32
 GAMMA = 0.99
@@ -29,6 +33,9 @@ def a2c_learner_loop(
     shared_model: ActorCritic,
     num_actors: int = 2,
 ):
+    device = get_device()
+    print(f"[A2C] Using device: {device}", flush=True)
+
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
@@ -43,14 +50,14 @@ def a2c_learner_loop(
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
-            except:
+            except queue.Empty:
                 break
 
-        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32)
-        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64)
-        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32)
-        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32)
-        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32)
+        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32, device=device)
+        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64, device=device)
+        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32, device=device)
+        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32, device=device)
+        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32, device=device)
         masks = 1.0 - dones
 
         logits, values = shared_model(obs)
@@ -90,6 +97,9 @@ def ppo_learner_loop(
     shared_model: ActorCritic,
     num_actors: int = 2,
 ):
+    device = get_device()
+    print(f"[PPO] Using device: {device}", flush=True)
+
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
@@ -104,25 +114,24 @@ def ppo_learner_loop(
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
-            except:
+            except queue.Empty:
                 break
 
-        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32)
-        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64)
-        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32)
-        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32)
-        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32)
-        old_log_probs = torch.as_tensor([e["log_prob"] for e in batch], dtype=torch.float32)
+        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32, device=device)
+        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64, device=device)
+        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32, device=device)
+        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32, device=device)
+        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32, device=device)
+        old_log_probs = torch.as_tensor([e["log_prob"] for e in batch], dtype=torch.float32, device=device)
+        behavior_values = torch.as_tensor([e["value"] for e in batch], dtype=torch.float32, device=device)
         masks = 1.0 - dones
 
         with torch.no_grad():
             _, next_values = shared_model(next_obs)
-            _, old_values = shared_model(obs)
         next_values = next_values.squeeze(-1)
-        old_values = old_values.squeeze(-1)
 
         targets = rewards + GAMMA * next_values * masks
-        advantages = targets - old_values
+        advantages = targets - behavior_values
 
         if advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -159,6 +168,9 @@ def vtrace_learner_loop(
     shared_model: ActorCritic,
     num_actors: int = 2,
 ):
+    device = get_device()
+    print(f"[V-trace] Using device: {device}", flush=True)
+
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
@@ -173,16 +185,16 @@ def vtrace_learner_loop(
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
-            except:
+            except queue.Empty:
                 break
 
-        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32)
-        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64)
-        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32)
-        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32)
-        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32)
-        behavior_log_probs = torch.as_tensor([e["log_prob"] for e in batch], dtype=torch.float32)
-        behavior_values = torch.as_tensor([e["value"] for e in batch], dtype=torch.float32)
+        obs = torch.as_tensor(np.stack([e["obs"] for e in batch]), dtype=torch.float32, device=device)
+        actions = torch.as_tensor([e["action"] for e in batch], dtype=torch.int64, device=device)
+        rewards = torch.as_tensor([e["reward"] for e in batch], dtype=torch.float32, device=device)
+        dones = torch.as_tensor([float(e["done"]) for e in batch], dtype=torch.float32, device=device)
+        next_obs = torch.as_tensor(np.stack([e["next_obs"] for e in batch]), dtype=torch.float32, device=device)
+        behavior_log_probs = torch.as_tensor([e["log_prob"] for e in batch], dtype=torch.float32, device=device)
+        behavior_values = torch.as_tensor([e["value"] for e in batch], dtype=torch.float32, device=device)
         masks = 1.0 - dones
 
         # Get current policy's log probs and values
@@ -207,8 +219,7 @@ def vtrace_learner_loop(
         td_errors = rewards + GAMMA * next_values * masks - behavior_values
         vtrace_targets = behavior_values + clipped_rhos * td_errors
 
-        # Advantages using V-trace targets
-        advantages = vtrace_targets - values.detach()
+        advantages = vtrace_targets - behavior_values
 
         if advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
