@@ -1,7 +1,8 @@
 import queue
 import torch.multiprocessing as mp
 from collections import deque
-from typing import List, Tuple
+from dataclasses import dataclass
+from typing import List, Optional
 
 import gymnasium as gym
 import numpy as np
@@ -14,6 +15,42 @@ from .actors import actor_loop
 
 def get_device():
     return torch.device("cpu")
+
+@dataclass
+class StopConfig:
+    max_updates: Optional[int] = None
+    target_reward: Optional[float] = None
+    min_episodes_for_target: int = 10
+
+def check_stop_condition(
+    stop_config: StopConfig,
+    stop_event,
+    update_count: int,
+    avg_reward: float,
+    num_episodes: int,
+) -> bool:
+    if stop_event.is_set():
+        return True
+    if stop_config.max_updates and update_count >= stop_config.max_updates:
+        print(f"Stopping: reached max updates ({stop_config.max_updates})", flush=True)
+        stop_event.set()
+        return True
+    if (stop_config.target_reward is not None
+        and num_episodes >= stop_config.min_episodes_for_target
+        and avg_reward >= stop_config.target_reward):
+        print(f"Stopping: reached target reward ({avg_reward:.1f} >= {stop_config.target_reward})", flush=True)
+        stop_event.set()
+        return True
+    return False
+
+def save_model(shared_model: ActorCritic, save_path: str, algorithm: str, env_id: str):
+    if save_path:
+        torch.save({
+            "model_state_dict": shared_model.state_dict(),
+            "algorithm": algorithm,
+            "env_id": env_id,
+        }, save_path)
+        print(f"Model auto-saved to {save_path}", flush=True)
 
 BATCH_SIZE_PER_ACTOR = 32
 GAMMA = 0.99
@@ -32,24 +69,45 @@ def a2c_learner_loop(
     metrics_list,
     shared_model: ActorCritic,
     num_actors: int = 2,
+    stop_event=None,
+    stop_config: Optional[StopConfig] = None,
+    save_path: Optional[str] = None,
+    algorithm: str = "a2c",
+    env_id: str = "CartPole-v1",
 ):
     device = get_device()
     print(f"[A2C] Using device: {device}", flush=True)
+
+    if stop_event is None:
+        stop_event = mp.Event()
+    if stop_config is None:
+        stop_config = StopConfig()
 
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
     recent_episodes = deque(maxlen=100)
+    total_episodes = 0
 
-    while True:
+    while not stop_event.is_set():
         batch = []
         while len(batch) < batch_size:
-            batch.append(experience_queue.get())
+            try:
+                exp = experience_queue.get(timeout=0.1)
+                batch.append(exp)
+            except queue.Empty:
+                if stop_event.is_set():
+                    break
+                continue
+
+        if len(batch) < batch_size:
+            continue
 
         while not episode_stats_queue.empty():
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
+                total_episodes += 1
             except queue.Empty:
                 break
 
@@ -90,30 +148,58 @@ def a2c_learner_loop(
         add_metric_to_list(metrics_list, update_count, avg_episode_reward)
         print(f"[A2C] Update={update_count} Loss={loss.item():.3f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
 
+        if check_stop_condition(stop_config, stop_event, update_count, avg_episode_reward, total_episodes):
+            break
+
+    if save_path:
+        save_model(shared_model, save_path, algorithm, env_id)
+    print("[A2C] Learner stopped", flush=True)
+
 def ppo_learner_loop(
     experience_queue: mp.Queue,
     episode_stats_queue: mp.Queue,
     metrics_list,
     shared_model: ActorCritic,
     num_actors: int = 2,
+    stop_event=None,
+    stop_config: Optional[StopConfig] = None,
+    save_path: Optional[str] = None,
+    algorithm: str = "ppo",
+    env_id: str = "CartPole-v1",
 ):
     device = get_device()
     print(f"[PPO] Using device: {device}", flush=True)
+
+    if stop_event is None:
+        stop_event = mp.Event()
+    if stop_config is None:
+        stop_config = StopConfig()
 
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
     recent_episodes = deque(maxlen=100)
+    total_episodes = 0
 
-    while True:
+    while not stop_event.is_set():
         batch = []
         while len(batch) < batch_size:
-            batch.append(experience_queue.get())
+            try:
+                exp = experience_queue.get(timeout=0.1)
+                batch.append(exp)
+            except queue.Empty:
+                if stop_event.is_set():
+                    break
+                continue
+
+        if len(batch) < batch_size:
+            continue
 
         while not episode_stats_queue.empty():
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
+                total_episodes += 1
             except queue.Empty:
                 break
 
@@ -161,30 +247,58 @@ def ppo_learner_loop(
         add_metric_to_list(metrics_list, update_count, avg_episode_reward)
         print(f"[PPO] Update={update_count} Loss={loss.item():.3f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
 
+        if check_stop_condition(stop_config, stop_event, update_count, avg_episode_reward, total_episodes):
+            break
+
+    if save_path:
+        save_model(shared_model, save_path, algorithm, env_id)
+    print("[PPO] Learner stopped", flush=True)
+
 def vtrace_learner_loop(
     experience_queue: mp.Queue,
     episode_stats_queue: mp.Queue,
     metrics_list,
     shared_model: ActorCritic,
     num_actors: int = 2,
+    stop_event=None,
+    stop_config: Optional[StopConfig] = None,
+    save_path: Optional[str] = None,
+    algorithm: str = "vtrace",
+    env_id: str = "CartPole-v1",
 ):
     device = get_device()
     print(f"[V-trace] Using device: {device}", flush=True)
+
+    if stop_event is None:
+        stop_event = mp.Event()
+    if stop_config is None:
+        stop_config = StopConfig()
 
     batch_size = BATCH_SIZE_PER_ACTOR * num_actors
     optimizer = optim.Adam(shared_model.parameters(), lr=LR)
     update_count = 0
     recent_episodes = deque(maxlen=100)
+    total_episodes = 0
 
-    while True:
+    while not stop_event.is_set():
         batch = []
         while len(batch) < batch_size:
-            batch.append(experience_queue.get())
+            try:
+                exp = experience_queue.get(timeout=0.1)
+                batch.append(exp)
+            except queue.Empty:
+                if stop_event.is_set():
+                    break
+                continue
+
+        if len(batch) < batch_size:
+            continue
 
         while not episode_stats_queue.empty():
             try:
                 stats = episode_stats_queue.get_nowait()
                 recent_episodes.append(stats["episode_reward"])
+                total_episodes += 1
             except queue.Empty:
                 break
 
@@ -241,12 +355,22 @@ def vtrace_learner_loop(
         add_metric_to_list(metrics_list, update_count, avg_episode_reward)
         print(f"[V-trace] Update={update_count} Loss={loss.item():.3f} AvgRho={avg_rho:.2f} AvgEpReward={avg_episode_reward:.1f}", flush=True)
 
+        if check_stop_condition(stop_config, stop_event, update_count, avg_episode_reward, total_episodes):
+            break
+
+    if save_path:
+        save_model(shared_model, save_path, algorithm, env_id)
+    print("[V-trace] Learner stopped", flush=True)
+
 def start_distributed(
     exp_id: str,
     num_actors: int = 2,
     env_id: str = "CartPole-v1",
     algorithm: str = "ppo",
-) -> Tuple[mp.Process, List[mp.Process], ActorCritic]:
+    max_updates: Optional[int] = None,
+    target_reward: Optional[float] = None,
+    save_path: Optional[str] = None,
+):
     env = gym.make(env_id)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
@@ -259,6 +383,9 @@ def start_distributed(
     episode_stats_queue: mp.Queue = mp.Queue(maxsize=1_000)
     metrics_list = init_experiment_metrics(exp_id)
 
+    stop_event = mp.Event()
+    stop_config = StopConfig(max_updates=max_updates, target_reward=target_reward)
+
     if algorithm == "ppo":
         learner_fn = ppo_learner_loop
     elif algorithm == "vtrace":
@@ -267,7 +394,7 @@ def start_distributed(
         learner_fn = a2c_learner_loop
     learner = mp.Process(
         target=learner_fn,
-        args=(experience_queue, episode_stats_queue, metrics_list, shared_model, num_actors),
+        args=(experience_queue, episode_stats_queue, metrics_list, shared_model, num_actors, stop_event, stop_config, save_path, algorithm, env_id),
     )
     learner.start()
 
@@ -280,4 +407,4 @@ def start_distributed(
         p.start()
         actors.append(p)
 
-    return learner, actors, shared_model
+    return learner, actors, shared_model, stop_event

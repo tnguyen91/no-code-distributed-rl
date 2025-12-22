@@ -19,10 +19,19 @@ class ExperimentManager:
         num_actors: int = 2,
         env_id: str = "CartPole-v1",
         algorithm: str = "ppo",
+        max_updates: Optional[int] = None,
+        target_reward: Optional[float] = None,
     ) -> str:
         exp_id = str(uuid4())
-        learner, actors, model = start_distributed(
-            exp_id=exp_id, num_actors=num_actors, env_id=env_id, algorithm=algorithm
+        save_path = os.path.join(MODELS_DIR, f"{exp_id}.pt")
+        learner, actors, model, stop_event = start_distributed(
+            exp_id=exp_id,
+            num_actors=num_actors,
+            env_id=env_id,
+            algorithm=algorithm,
+            max_updates=max_updates,
+            target_reward=target_reward,
+            save_path=save_path,
         )
         self.experiments[exp_id] = {
             "learner": learner,
@@ -30,35 +39,35 @@ class ExperimentManager:
             "algorithm": algorithm,
             "env_id": env_id,
             "model": model,
+            "stop_event": stop_event,
         }
         return exp_id
 
-    def stop_experiment(self, exp_id: str, save_model: bool = True) -> Optional[str]:
-        """Stop experiment and optionally save the model. Returns saved model path or None."""
+    def stop_experiment(self, exp_id: str) -> Optional[str]:
         exp = self.experiments.get(exp_id)
         if exp is None:
             return None
 
         learner: Process = exp["learner"]
         actors: List[Process] = exp["actors"]
-        model = exp.get("model")
+        stop_event = exp.get("stop_event")
 
-        # Save model before terminating processes
-        saved_path = None
-        if save_model and model is not None:
-            saved_path = os.path.join(MODELS_DIR, f"{exp_id}.pt")
-            torch.save({
-                "model_state_dict": model.state_dict(),
-                "algorithm": exp.get("algorithm", "ppo"),
-                "env_id": exp.get("env_id", "CartPole-v1"),
-            }, saved_path)
-            print(f"Model saved to {saved_path}")
+        if stop_event is not None:
+            stop_event.set()
 
-        for p in [learner, *actors]:
+        learner.join(timeout=5.0)
+        if learner.is_alive():
+            learner.terminate()
+
+        for p in actors:
             if p.is_alive():
                 p.terminate()
-        for p in [learner, *actors]:
-            p.join(timeout=2.0)
+        for p in actors:
+            p.join(timeout=1.0)
+
+        saved_path = os.path.join(MODELS_DIR, f"{exp_id}.pt")
+        if not os.path.exists(saved_path):
+            saved_path = None
 
         del self.experiments[exp_id]
         delete_experiment_metrics(exp_id)

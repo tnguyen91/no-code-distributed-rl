@@ -33,6 +33,8 @@ const ExperimentControl: React.FC = () => {
     const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
     const [evalEpisodes, setEvalEpisodes] = useState<number>(10);
     const [recordEpisodes, setRecordEpisodes] = useState<number>(1);
+    const [maxUpdates, setMaxUpdates] = useState<string>("");
+    const [targetReward, setTargetReward] = useState<string>("");
 
     const refreshExperiments = useCallback(async () => {
         try {
@@ -53,7 +55,10 @@ const ExperimentControl: React.FC = () => {
     useEffect(() => {
         refreshExperiments();
         refreshSavedModels();
-        const interval = setInterval(refreshExperiments, POLL_INTERVAL_MS);
+        const interval = setInterval(() => {
+            refreshExperiments();
+            refreshSavedModels();
+        }, POLL_INTERVAL_MS);
         return () => clearInterval(interval);
     }, [refreshExperiments, refreshSavedModels]);
 
@@ -79,7 +84,11 @@ const ExperimentControl: React.FC = () => {
         setError(null);
         setIsStarting(true);
         try {
-            const expId = await startExperiment(numActors, envId, algorithm);
+            const stopConditions = {
+                maxUpdates: maxUpdates ? parseInt(maxUpdates, 10) : null,
+                targetReward: targetReward ? parseFloat(targetReward) : null,
+            };
+            const expId = await startExperiment(numActors, envId, algorithm, stopConditions);
             setSelectedExpId(expId);
             await refreshExperiments();
         } catch (err: any) {
@@ -194,6 +203,26 @@ const ExperimentControl: React.FC = () => {
                                 max={16}
                                 value={numActors}
                                 onChange={(e) => setNumActors(Math.max(1, parseInt(e.target.value || "1", 10)))}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Max Updates (optional)</label>
+                            <input
+                                type="number"
+                                min={1}
+                                placeholder="No limit"
+                                value={maxUpdates}
+                                onChange={(e) => setMaxUpdates(e.target.value)}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Target Reward (optional)</label>
+                            <input
+                                type="number"
+                                step="any"
+                                placeholder="No target"
+                                value={targetReward}
+                                onChange={(e) => setTargetReward(e.target.value)}
                             />
                         </div>
                         <button

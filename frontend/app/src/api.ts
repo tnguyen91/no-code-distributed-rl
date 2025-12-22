@@ -25,15 +25,27 @@ export interface MetricsResponse {
     metrics: MetricPoint[];
 }
 
+export interface StopConditions {
+    maxUpdates?: number | null;
+    targetReward?: number | null;
+}
+
 export async function startExperiment(
     numActors: number,
     envId: string,
-    algorithm: string = "ppo"
+    algorithm: string = "ppo",
+    stopConditions: StopConditions = {}
 ): Promise<string> {
     const res = await fetch(`${BASE_URL}/experiments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ num_actors: numActors, env_id: envId, algorithm }),
+        body: JSON.stringify({
+            num_actors: numActors,
+            env_id: envId,
+            algorithm,
+            max_updates: stopConditions.maxUpdates ?? null,
+            target_reward: stopConditions.targetReward ?? null,
+        }),
     });
     if (!res.ok) {
         throw new Error("Failed to start experiment");

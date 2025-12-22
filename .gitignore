@@ -3,3 +3,6 @@ __pycache__
 node_modules/
 models/
 build/
+eval_videos/
+saved_models/
+*.pyc

@@ -24,10 +24,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from typing import Optional
+
 class StartRequest(BaseModel):
     num_actors: int = 2
     env_id: str = "CartPole-v1"
     algorithm: str = "ppo"
+    max_updates: Optional[int] = None
+    target_reward: Optional[float] = None
 
 @app.get("/health")
 def health():
@@ -41,7 +45,11 @@ def train_baseline(background_tasks: BackgroundTasks):
 @app.post("/experiments")
 def start_experiment(req: StartRequest):
     exp_id = manager.start_experiment(
-        num_actors=req.num_actors, env_id=req.env_id, algorithm=req.algorithm
+        num_actors=req.num_actors,
+        env_id=req.env_id,
+        algorithm=req.algorithm,
+        max_updates=req.max_updates,
+        target_reward=req.target_reward,
     )
     return {"experiment_id": exp_id}
 
@@ -49,13 +57,10 @@ def start_experiment(req: StartRequest):
 def list_experiments():
     return {"experiments": manager.list_experiments()}
 
-class StopRequest(BaseModel):
-    save_model: bool = True
-
 @app.post("/experiments/{exp_id}/stop")
-def stop_experiment(exp_id: str, req: StopRequest = StopRequest()):
-    saved_path = manager.stop_experiment(exp_id, save_model=req.save_model)
-    return {"ok": saved_path is not None or not req.save_model, "saved_path": saved_path}
+def stop_experiment(exp_id: str):
+    saved_path = manager.stop_experiment(exp_id)
+    return {"ok": True, "saved_path": saved_path}
 
 @app.get("/experiments/{exp_id}/metrics")
 def get_experiment_metrics(exp_id: str):
